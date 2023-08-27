@@ -1,5 +1,5 @@
-# kgl_Store_Sales
-Kaggle competition of the ongoing Store Sales - Time Series Forecasting.
+# Kaggle Competition: Store Sales - Time Series Forecasting
+[Kaggle competition of the ongoing Store Sales - Time Series Forecasting](https://www.kaggle.com/competitions/store-sales-time-series-forecasting/leaderboard)
 
 ## Objective
 
