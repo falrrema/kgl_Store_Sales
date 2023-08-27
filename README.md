@@ -68,7 +68,3 @@ I suggested the team two things:
 
 1. To think about the hierarchical attributes that the dataset has. Meaning, that it could be better instead to predict the stores sales and cascade down the sales to the family of products multiplying by vector of weights. These weights can be the average composition of the product in that stores, or a moving weigth average.
 2. Understand were the model is making mistakes. Its important to make diagnostics of every hypothesis, and understand which stores or families or periods have the biggest errors. If there is a pattern then it can generate new insights for new models.
-
-
-
-
