@@ -1,7 +1,7 @@
 # kgl_Store_Sales
 Kaggle competition of the ongoing Store Sales - Time Series Forecasting.
 
-#### Objective
+## Objective
 
 - Learn time series forecasting analysis and techniques.
 - Update to new R and Python packages for time series forecasting.
@@ -9,7 +9,7 @@ Kaggle competition of the ongoing Store Sales - Time Series Forecasting.
 - Refresh on python coding.
 - Help and guide my data science team in their learning path.
 
-#### Week 1
+### Week 1
 
 - Setup mostly, we downloaded the data and uploaded it to deltalake in databricks.
 - Created functions for easy loading and saving the files.
@@ -26,7 +26,7 @@ Answers we found:
 3. There are 33 families of products. We do have information in all of them, however some products are barely sold, particularly two families `BOOKS`and `BABY CARE`are sold 287 (17%) and 891 (53%) days respectively.
 4. The testing data set spans 15 days after the end of the training set from 2017-08-16 to 2017-08-31.
 
-#### Week 2
+### Week 2
 
 Our team focused to complete the recommended tutorial of the competition, which teaches about time series forecasting. It can be found here:
 
@@ -34,7 +34,7 @@ Our team focused to complete the recommended tutorial of the competition, which 
 
 Also this tutorial included a submission and the score of that submission was 0.51 measure with RMSLE. 
 
-#### Week 3
+### Week 3
 
 I suggested focusing in developing a good cross-validation pipeline. I shared links to different articles both for python or R about ways to do time series crossvalidation:
 
@@ -50,13 +50,13 @@ Also recommended some datacamp courses on the subject:
 
 We decided block time series crossvalidation is the way to go, and the group constructed different functions to apply CV. I discover ModelTime library in R and found that it was easy to create the block time CV using the function sliding_period(). 
 
-#### Week 4
+### Week 4
 
 This week the idea was to upload a new submission with the things learn so far, CV the hypothesis to check for improvements. So far no new improvements where made, but there were efforts to understand better how the forecasting is done with linear regressions. 
 
 I personally did the time series forecasting datacamp course in R. 
 
-#### Week 5
+### Week 5
 
 This week we kept on discussing about how to improve the base model uploaded in the tutorial. The team found that a several of variables are predictive such as changes in oil price, holidays and holidays by region, and train window timeframe. There was a lot of discussion concerning how linear regression is able to predict for multiple days, stores and categories simultaneously. Some of the teams where training multiple models iterating by store and family of products. This has lead them to worse scores in there CV. 
 
