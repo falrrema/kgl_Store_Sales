@@ -1,0 +1,9 @@
+# Ignore the entire Data directory
+/Data/
+
+# Ignore specific file extensions
+*.csv
+*.rds
+*.txt
+*.parquet
+.DS_Store

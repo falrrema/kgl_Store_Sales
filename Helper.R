@@ -923,4 +923,53 @@ lift_segmento <- function(df, segmento) {
     lift_graph()
 }
 
+rmsle <- function(data, truth, estimate) {
+  truth <- data$truth
+  estimate <- data$estimate
+  
+  error <- log1p(estimate) - log1p(truth)
+  sqrt(mean(error^2, na.rm = TRUE))
+}
+
+# Define the RMSLE metric
+# Does not accept negative values!!
+rmsle_impl <- function(truth, estimate, case_weights = NULL) {
+  error <- log1p(estimate) - log1p(truth)
+  sqrt(mean(error^2))
+}
+
+rmsle_vec <- function(truth, estimate, na_rm = TRUE, case_weights = NULL, ...) {
+  check_numeric_metric(truth, estimate, case_weights)
+  
+  if (na_rm) {
+    result <- yardstick_remove_missing(truth, estimate, case_weights)
+    
+    truth <- result$truth
+    estimate <- result$estimate
+  } else if (yardstick_any_missing(truth, estimate, case_weights)) {
+    return(NA_real_)
+  }
+  
+  rmsle_impl(truth, estimate, case_weights = case_weights)
+}
+
+rmsle <- function(data, ...) {
+  UseMethod("rmsle")
+}
+
+rmsle <- yardstick::new_numeric_metric(rmsle, direction = "minimize")
+rmsle.data.frame <- function(data, truth, estimate, na_rm = TRUE, 
+                             case_weights = NULL, ...) {
+  numeric_metric_summarizer(
+    name = "rmsle",
+    fn = rmsle_vec,
+    data = data,
+    truth = !!enquo(truth),
+    estimate = !!enquo(estimate),
+    na_rm = na_rm,
+    case_weights = !!enquo(case_weights)
+  )
+}
+
+
 
