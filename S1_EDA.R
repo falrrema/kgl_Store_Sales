@@ -113,6 +113,8 @@ train %>%
   fun_print()
 
 # ¿Cuál es el tiempo del test set? --------------------------------------
+# Ini = 2017-08-16
+# Fin = 2017-08-31
 test %>% 
   count(date) %>% 
   summarise(date_min = min(date),

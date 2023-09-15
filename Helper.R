@@ -36,6 +36,12 @@ install_these_packages <- function(listPackages) {
 #   if (loadLibrary) invisible(capture.output(lapply(packages, function(t) library(t, character.only = TRUE))))
 # }
 
+# custom requirements
+requirements_libs <- function(packages, loadLibrary = TRUE) {
+  install_these_packages(packages)
+  if (loadLibrary) invisible(capture.output(lapply(packages, function(t) library(t, character.only = TRUE))))
+}
+
 # Data wrangling, manipulation and processing
 datawrang_libs <- function(loadLibrary = TRUE) {
   packages <- c("plotly", "stringr", "lubridate", "pbapply", "ggrepel", "ggthemes", "data.table", "lubridate", "readxl", "tm", "writexl", "sparklyr", "tidyverse") # dbplyr
