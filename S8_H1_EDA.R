@@ -31,25 +31,172 @@ holidays <- df_list$holidays_events
 stores <- df_list$stores
 test <- df_list$test
 
+# Hypothesis 1 ------------------------------------------------------------
+# Is store level forecasting useful for a posterior top-down approach to sales?
+# Obtengamos los % de ventas de cada familia y para el ejercico 
+# usares store_nbr == 1
+# Miraremos la volatilidad por bisemana (similar al forecasting)
+df_str1 <- train %>% 
+  select(-onpromotion) %>% 
+  # Generando ventas totales por store
+  group_by(date, store_nbr) %>% 
+  mutate(sales_total = sum(sales)) %>% 
+  ungroup() %>% 
+  filter(store_nbr == 1) %>% # analizemos solo 1 store
+  arrange(date) %>% 
+  # Generando otros features
+  mutate(pct = sales/sales_total, 
+         pct_rm_7d = slide_dbl(pct, mean, .before = 6, .after = 0, .complete = TRUE), 
+         week_num = isoweek(date),
+         biweek_num = ceiling(week_num / 2),
+         # generamos la marca de bisemanal anual
+         yearbiweek = paste(year(date), biweek_num, sep = "_")) %>% 
+  group_by(yearbiweek) %>% 
+  mutate(datebiweek = min(date)) %>% # fecha inicial de cada semana
+  ungroup()
+
+# Se observa estabilidad anual, algunos años cambia la tendencia entre años
+(df_str1 %>% 
+    ggplot(aes(x = date, y = pct_rm_7d)) +
+    geom_line() +
+    facet_wrap(~family) +
+    theme_bw() + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))) %>% 
+  ggplotly()
+
+# Revisemos la volatilidad a nivel de semana
+df_str1_biweek <- df_str1 %>% 
+  group_by(datebiweek, family) %>% 
+  summarise(sales_week = sum(sales),
+            pct_mean = mean(pct),
+            pct_max = max(pct),
+            pct_min = min(pct),
+            pct_sd = sd(pct)) %>% 
+  ungroup()
+
+# Se ve relativamente estable intrasemana, salvo unas semanas en el 2013
+# tenemos un corte en entre Junio 24 y Julio 8 2013
+plot_ly(data = df_str1_biweek, 
+        x = ~datebiweek, 
+        y = ~pct_mean, 
+        color = ~family,
+        type = 'scatter', 
+        mode = 'lines+markers',
+        error_y = ~list(array = pct_sd, color = '#000000'))
+
+# veamos las semanas y productos más volatiles
+# La gran mayoría tiene variación menos de 1%
+# Productos más volátiles:
+# PRODUCE - 137 bisemanas con variación 2-5% y 4 semanas con más de 10%
+# MEATS - 17 bisemanas con variación 1-2% 
+# GROCERY I - 7 bisemanas 5-10%
+# BEVERAGES - 25 bisemanas 2-5%
+# CLEANING - 9 bisemanas  2-5%
+df_str1_biweek %>% 
+  mutate(var_desc = case_when(pct_sd < 0.01 ~ "menor 1%",
+                              pct_sd < 0.02 ~ "menor 2%",
+                              pct_sd < 0.05 ~ "menor 5%", 
+                              pct_sd < 0.1 ~ "menor 10%", 
+                              TRUE ~ "mayor 10%"),
+         var_desc = factor(var_desc, level = c("menor 1%", "menor 2%", "menor 5%", 
+                                               "menor 10%", "mayor 10%"))) %>% 
+  na.omit() %>% 
+  count(family, var_desc) %>% 
+  spread(var_desc, n, fill = 0) %>% 
+  fun_print()
+
+# Hasta ahora se viable asumir que los porcentajes son relativamente estables
+# para este store son pocos que experimentan variaciones sobre 5% dentro de una 
+# bisemana. Ahora vamos a escalar esto a todos los stores y veremos los complicados.
+df_strs <- train %>% 
+  select(-onpromotion) %>%
+  arrange(date) %>% 
+  # Generando ventas totales por store 
+  group_by(date, store_nbr) %>% 
+  mutate(sales_total = sum(sales)) %>% 
+  group_by(store_nbr) %>% 
+  # Generando otros features
+  mutate(pct = sales/sales_total, 
+         pct_rm_7d = slide_dbl(pct, mean, .before = 6, .after = 0, .complete = TRUE), 
+         week_num = isoweek(date),
+         biweek_num = ceiling(week_num / 2),
+         # generamos la marca de bisemanal anual
+         yearbiweek = paste(year(date), biweek_num, sep = "_")) %>% 
+  ungroup() %>% 
+  group_by(yearbiweek) %>% 
+  mutate(datebiweek = min(date)) %>% # fecha inicial de cada semana
+  ungroup()
+
+# Revisemos la volatilidad a nivel de bisemana
+df_strs_biweek <- df_strs %>% 
+  group_by(datebiweek, store_nbr, family) %>% 
+  summarise(sales_week = sum(sales),
+            pct_mean = mean(pct),
+            pct_max = max(pct),
+            pct_min = min(pct),
+            pct_sd = sd(pct)) %>% 
+  ungroup()
+
+# Observamos que en general la gran mayoría de las tiendas son 
+# bastante estables en ventana de 2 semanas la mayoría del tiempo. 
+# Sin embargo, hay que tener ojo con las siguientes tiendas:
+# store_nbr = 23
+# store_nbr = 32
+# store_nbr = 26
+# store_nbr = 24
+# store_nbr = 30
+df_strs_biweek %>% 
+  mutate(var_desc = case_when(pct_sd < 0.01 ~ "menor 1%",
+                              pct_sd < 0.02 ~ "menor 2%",
+                              pct_sd < 0.05 ~ "menor 5%", 
+                              pct_sd < 0.1 ~ "menor 10%", 
+                              TRUE ~ "mayor 10%"),
+         var_desc = factor(var_desc, level = c("menor 1%", "menor 2%", "menor 5%", 
+                                               "menor 10%", "mayor 10%"))) %>% 
+  na.omit() %>% 
+  count(store_nbr, var_desc) %>% 
+  spread(var_desc, n, fill = 0) %>% 
+  arrange(desc(`mayor 10%`)) %>% 
+  fun_print()
+
+# Revisemos el producto problemático
+# Para el store 23 es MEATS
+# GROCERY I es problematico para 26, 32
+# PRODUCE en 24 también.
+df_strs_biweek %>% 
+  filter(store_nbr %in% c(23,32,26,24,30)) %>% 
+  mutate(var_desc = case_when(pct_sd < 0.01 ~ "menor 1%",
+                              pct_sd < 0.02 ~ "menor 2%",
+                              pct_sd < 0.05 ~ "menor 5%", 
+                              pct_sd < 0.1 ~ "menor 10%", 
+                              TRUE ~ "mayor 10%"),
+         var_desc = factor(var_desc, level = c("menor 1%", "menor 2%", "menor 5%", 
+                                               "menor 10%", "mayor 10%"))) %>% 
+  na.omit() %>% 
+  count(store_nbr, family, var_desc) %>% 
+  spread(var_desc, n, fill = 0) %>% 
+  arrange(desc(`mayor 10%`))
+
 # Feature engineering -----------------------------------------------------
-# Oil delta precios
-oil <- oil %>%
-  mutate(delta_oil = dcoilwtico - lag(dcoilwtico))
-
-hdays <- holidays %>%
-  select(date, city = locale) %>%
-  mutate(holiday = 1)
-
-# Vamos a simplificar el problema buscando predecir el store completo
-train_df <- train %>%
-  group_by(date, store_nbr) %>%
-  summarise(sales = sum(sales),
-            onpromotion = sum(onpromotion)) %>%
-  ungroup() %>%
-  left_join(transactions, by = c("date", "store_nbr")) %>%
-  left_join(oil, by = "date") %>%
-  left_join(stores, by = "store_nbr") %>%
-  left_join(hdays, c("date", "city")) %>%
-  mutate(holiday = coalesce_0(holiday)) %>%
-  select(-city, -state)
+# # Oil delta precios
+# oil <- oil %>% 
+#   mutate(delta_oil = dcoilwtico - lag(dcoilwtico))
+# 
+# hdays <- holidays %>% 
+#   select(date, city = locale) %>% 
+#   mutate(holiday = 1)
+# 
+# # Vamos a simplificar el problema buscando predecir el store completo
+# train_df <- train %>% 
+#   group_by(date, store_nbr) %>% 
+#   summarise(sales = sum(sales),
+#             onpromotion = sum(onpromotion)) %>% 
+#   ungroup() %>% 
+#   left_join(transactions, by = c("date", "store_nbr")) %>% 
+#   left_join(oil, by = "date") %>% 
+#   left_join(stores, by = "store_nbr") %>% 
+#   left_join(hdays, c("date", "city")) %>% 
+#   filter(date >= as.Date("2013-01-10")) %>% 
+#   mutate(holiday = coalesce_0(holiday)) %>% 
+#   select(-city, -state)
 
