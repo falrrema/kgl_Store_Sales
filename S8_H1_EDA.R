@@ -177,26 +177,3 @@ df_strs_biweek %>%
   spread(var_desc, n, fill = 0) %>% 
   arrange(desc(`mayor 10%`))
 
-# Feature engineering -----------------------------------------------------
-# # Oil delta precios
-# oil <- oil %>% 
-#   mutate(delta_oil = dcoilwtico - lag(dcoilwtico))
-# 
-# hdays <- holidays %>% 
-#   select(date, city = locale) %>% 
-#   mutate(holiday = 1)
-# 
-# # Vamos a simplificar el problema buscando predecir el store completo
-# train_df <- train %>% 
-#   group_by(date, store_nbr) %>% 
-#   summarise(sales = sum(sales),
-#             onpromotion = sum(onpromotion)) %>% 
-#   ungroup() %>% 
-#   left_join(transactions, by = c("date", "store_nbr")) %>% 
-#   left_join(oil, by = "date") %>% 
-#   left_join(stores, by = "store_nbr") %>% 
-#   left_join(hdays, c("date", "city")) %>% 
-#   filter(date >= as.Date("2013-01-10")) %>% 
-#   mutate(holiday = coalesce_0(holiday)) %>% 
-#   select(-city, -state)
-
