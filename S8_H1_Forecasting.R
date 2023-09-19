@@ -17,10 +17,8 @@ source("Helper.R")
 # Seteando ambiente -------------------------------------------------------
 # Específicos para el proyecto
 # sc <- SparkR::sparkR.session(master="local")
-datawrang_libs() # cargando librerias de datawrangling
-ml_libs() # cargando librarias para ML
-library(plotly)
-library(slider)
+packages <- c("modeldata", "tidymodels")
+requirements_libs(packages)
 
 # Data --------------------------------------------------------------------
 df_list <- read_rds("Data/df_list_kgl.RDS")
@@ -61,23 +59,12 @@ store_df <- train %>%
   select(-city, -state) %>% 
   filter(date > ymd("2013-01-10"))
 
-# Table train (made with recipes)
-store_train <- recipe(~ ., store_df) %>%
-  step_timeseries_signature(date) %>%
-  step_select(sales, date, store_nbr, onpromotion, delta_oil_1d, delta_oil_7d, 
-              type, cluster, holiday, date_half, date_quarter, date_month, 
-              date_day, date_wday, date_week, type, cluster) %>% 
-  step_mutate(store_nbr = factor(store_nbr)) %>% 
-  step_dummy(all_nominal()) %>% 
-  step_log(sales, base = 10, offset = 1) %>% 
-  prep() %>% bake(store_df)
-
 # Crossvalidation ---------------------------------------------------------
 # Sliding window train and test set
 ventana_train <- 150
 ventana_test <- 15
 splits <- time_series_cv(
-  data        = store_train,
+  data        = store_df,
   date_var    = date, 
   initial     = ventana_train,
   assess      = ventana_test,
@@ -104,79 +91,105 @@ splits %>%
                            .facet_ncol = 2, .interactive = FALSE)
 
 # Recipes -----------------------------------------------------------------
-# template <- training(splits$splits[[1]]) # template for recipe
-# 
-# # Recipes for models with extra regressors
-# recipe_spec <- recipe(sales ~ ., template) %>%
-#   step_timeseries_signature(date) %>%
-#   step_select(date, store_nbr, onpromotion, delta_oil_1d, delta_oil_7d, 
-#               type, cluster, holiday, date_half, date_quarter, date_month, 
-#               date_day, date_wday, date_week, type, cluster) %>% 
-#   step_mutate(store_nbr = factor(store_nbr)) %>% 
-#   step_dummy(all_nominal(), one_hot = TRUE) 
-#   
-# recipe_spec %>% prep %>% bake(NULL) %>% glimpse
+template <- training(splits$splits[[1]]) # template for recipe
+
+# Recipe Basic
+recipe_basic <- recipe(sales ~ date, template) %>% 
+  step_log(sales, offset = 1, base = 10)
+
+# Recipes for models with extra regresors
+recipe_spec <- recipe(sales ~ ., template) %>%
+  step_timeseries_signature(date) %>%
+  step_select(sales, date, store_nbr, onpromotion, delta_oil_1d, delta_oil_7d,
+              type, cluster, holiday, date_half, date_quarter, date_month,
+              date_day, date_wday, date_week, type, cluster) %>%
+  step_mutate(store_nbr = factor(store_nbr)) %>%
+  step_dummy(all_nominal()) %>% 
+  step_log(sales, offset = 1, base = 10)
+
+recipe_basic %>% prep %>% bake(NULL) %>% glimpse
+recipe_spec %>% prep %>% bake(NULL) %>% glimpse
 
 # Modeling and fit --------------------------------------------------------
 # Lets train with 7 models
 # Model 1: auto_arima
-auto_arima <- arima_reg() %>%
-  set_engine(engine = "auto_arima") %>%
-  fit(preprocessor = sales ~ date,
-      resamples = splits)
-
-# Model 2: arima_boost
-arima_boost <- arima_boost(min_n = 5, 
-                           learn_rate = 0.01, 
-                           trees = 5000,
-                           tree_depth = 6) %>%
-  set_engine(engine = "auto_arima_xgboost") %>%
-  fit(sales ~ date, data = training(splits$splits[[1]]))
-
-# Model 3: ets
-ets <- exp_smoothing() %>%
-  set_engine(engine = "ets") %>%
-  fit(sales ~ date, data = training(splits$splits[[1]]))
+# wf_auto_arima <- workflow() %>% 
+#   add_model(arima_reg() %>% set_engine(engine = "auto_arima")) %>%
+#   add_recipe(recipe_basic) %>% 
+#   fit(data = training(splits$splits[[1]]))
+# 
+# # Model 2: arima_boost
+# wf_arima_boost <- workflow() %>% 
+#   add_model(arima_boost(min_n = 5, 
+#                         learn_rate = 0.01, 
+#                         trees = 5000,
+#                         tree_depth = 6) %>%
+#               set_engine(engine = "auto_arima_xgboost")) %>% 
+#   add_recipe(recipe_basic) %>%
+#   fit(data = training(splits$splits[[1]]))
+# 
+# # Model 3: ets
+# wf_ets <- workflow() %>% 
+#   add_model(exp_smoothing() %>%
+#               set_engine(engine = "ets")) %>%
+#   add_recipe(recipe_basic) %>% 
+#   fit(data = training(splits$splits[[1]]))
 
 # Model 4: lm
-linear <- linear_reg() %>% 
-  set_engine("lm") %>%
-  fit(sales ~ ., training(splits$splits[[1]]))
+wf_linear <- workflow() %>% 
+  add_model(linear_reg() %>% 
+              set_engine("lm")) %>%
+  add_recipe(recipe_spec %>% step_rm(date)) %>% 
+  fit(training(splits$splits[[1]]))
 
-# Model 5: prophet
-mod_prophet <- prophet_reg(seasonality_yearly = TRUE,
-                           seasonality_daily = TRUE) %>% 
-  set_engine("prophet") %>%
-  fit(sales ~ date, training(splits$splits[[1]]))
+# Model 5: lasso
+wf_glmnet <- workflow() %>% 
+  add_model(linear_reg(penalty = 1, mixture = 1) %>% 
+              set_engine("glmnet")) %>%
+  add_recipe(recipe_spec %>% step_rm(date)) %>% 
+  fit(training(splits$splits[[1]]))
 
-# Model 6 Xgboost
-mod_xgboost <- boost_tree(mode = "regression",
-                          trees = 5000, 
+# Model 6: prophet
+# wf_prophet <- workflow() %>% 
+#   add_model(prophet_reg(seasonality_yearly = TRUE,
+#                         seasonality_daily = TRUE) %>% 
+#               set_engine("prophet")) %>%
+#   add_recipe(recipe_basic) %>% 
+#   fit(training(splits$splits[[1]]))
+
+# Model 7 Xgboost
+wf_xgboost <- workflow() %>% 
+  add_model(boost_tree(mode = "regression",
+                       trees = 5000, 
+                       tree_depth = 6, 
+                       learn_rate = 0.01, 
+                       min_n = 5) %>% 
+              set_engine("xgboost"))  %>%
+  add_recipe(recipe_spec %>% step_rm(date)) %>% 
+  fit(training(splits$splits[[1]]))
+
+# Model 8 Prophet Boost
+wf_prophet_xgboost <-  workflow() %>% 
+  add_model(prophet_boost(seasonality_yearly = TRUE, 
+                          seasonality_daily = TRUE, 
+                          trees = 5000,
                           tree_depth = 6, 
                           learn_rate = 0.01, 
                           min_n = 5) %>% 
-  set_engine("xgboost")  %>%
-  fit(sales ~ . -date, training(splits$splits[[1]]))
-
-# Prophet Boost
-prophet_xgboost <-  prophet_boost(seasonality_yearly = TRUE, 
-                                  seasonality_daily = TRUE, 
-                                  trees = 5000,
-                                  tree_depth = 6, 
-                                  learn_rate = 0.01, 
-                                  min_n = 5) %>% 
-  set_engine("prophet_xgboost") %>% 
-  fit(sales ~ ., training(splits$splits[[1]]))
+              set_engine("prophet_xgboost")) %>% 
+  add_recipe(recipe_spec) %>% 
+  fit(training(splits$splits[[1]]))
 
 # Model Time Table and Refit ----------------------------------------------
 model_tbl <- modeltime_table(
-  auto_arima,
-  arima_boost,
-  ets,
-  linear,
-  mod_prophet, 
-  mod_xgboost,
-  prophet_xgboost
+  # wf_auto_arima,
+  # wf_arima_boost,
+  # wf_ets,
+  wf_linear,
+  wf_glmnet,
+  # wf_prophet, 
+  wf_xgboost,
+  wf_prophet_xgboost
 )
 
 resample_results <- model_tbl %>%
@@ -195,8 +208,7 @@ resample_results %>%
   )
 
 resample_results %>%
-  modeltime_resample_accuracy(summary_fns = list(mean = mean, sd = sd), 
-                              metric_set = rmse) %>%
-  table_modeltime_accuracy(.interactive = FALSE)
+  modeltime_resample_accuracy(summary_fns = NULL, 
+                              metric_set = rmse) %>% View
 
-resample_results$.resample_results[[6]]
+typeof(resample_results$.model[[3]]$fit$fit$spec$)
