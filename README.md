@@ -68,3 +68,33 @@ I suggested the team two things:
 
 1. To think about the hierarchical attributes that the dataset has. Meaning, that it could be better instead to predict the stores sales and cascade down the sales to the family of products multiplying by vector of weights. These weights can be the average composition of the product in that stores, or a moving weigth average.
 2. Understand were the model is making mistakes. Its important to make diagnostics of every hypothesis, and understand which stores or families or periods have the biggest errors. If there is a pattern then it can generate new insights for new models.
+
+### Week 6-7 
+
+Vacations!
+
+### Week 6-7 
+
+Still on vacations but manage to find time to work out a hypotesis. This week I have work mainly in R using the `modeltime` library. You can fin more in this link:
+
+- [Modeltime](https://business-science.github.io/modeltime/index.html)
+- [Modeltime Resampling](https://business-science.github.io/modeltime.resample/)
+
+This library is an extension of the [tidymodels](https://www.tidymodels.org/) ecosystem which is great and I have never used it extensively. 
+
+Previous weeks I have focused on using a linear regression to train and predict on all the data, stores and family are converted to features and some time features were created also. Since the data set has hierarchical properties I wanted to pursue the idea to predict store sales and cascade down to family sales by looking back the percentage of sales that correspond to the family in a lookback window. Say for example, `GROCERIES I` usually correspond to 25% sales for store 1 looking back 2 weeks, then I asign that percentage to that family. Then, when predicting whole store sales I just multiply the percentage to get family sales. The limitations is that the percentage is static.
+
+**Hypothesis 1:**
+
+*I can improve sales forecasting by a top down approach of stores sales prediction and cascading the sales to family using a rolling sales percentage. This forecasting will be improved also by adding new features such as changes in day to day oil prices, time features, holidays and store level characteristics (cluster and type).*
+
+I first did a simple EDA of this hypothesis you can find that analysis in `S8_H1_EDA.R`. I calculated for train the whole day store sales and then the percentage of sales of each family product. Then aggregated the percentages by a two week frame for all train. Since there are about 1600 training days, that means 118 biweeks, and since there are 32 families there is a total of ~3700 biweeks-family to evaluate the percentage variation. I found there is relevant variation withing two weeks frame:
+
+|var_desc   | n_prom|  pct|
+|:----------|------:|----:|
+|menor 20%  |    643| 29.0|
+|menor 50%  |    880| 39.7|
+|menor 80%  |    512| 23.1|
+|menor 100% |    184|  8.3|
+
+Only 20% biweeks-family has a variation of its percentage below 20% (there were no under 10%), only 8% has between 80-100%. This strategy may work, but I will have to experiment with different look-back frames (not only two week). 

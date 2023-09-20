@@ -45,7 +45,7 @@ df_str1 <- train %>%
   filter(store_nbr == 1) %>% # analizemos solo 1 store
   arrange(date) %>% 
   # Generando otros features
-  mutate(pct = sales/sales_total, 
+  mutate(pct = sales/sales_total*100, 
          pct_rm_7d = slide_dbl(pct, mean, .before = 6, .after = 0, .complete = TRUE), 
          week_num = isoweek(date),
          biweek_num = ceiling(week_num / 2),
@@ -72,7 +72,8 @@ df_str1_biweek <- df_str1 %>%
             pct_max = max(pct),
             pct_min = min(pct),
             pct_sd = sd(pct)) %>% 
-  ungroup()
+  ungroup() %>% 
+  mutate(coef_var = pct_sd/pct_mean)
 
 # Se ve relativamente estable intrasemana, salvo unas semanas en el 2013
 # tenemos un corte en entre Junio 24 y Julio 8 2013
@@ -93,13 +94,13 @@ plot_ly(data = df_str1_biweek,
 # BEVERAGES - 25 bisemanas 2-5%
 # CLEANING - 9 bisemanas  2-5%
 df_str1_biweek %>% 
-  mutate(var_desc = case_when(pct_sd < 0.01 ~ "menor 1%",
-                              pct_sd < 0.02 ~ "menor 2%",
-                              pct_sd < 0.05 ~ "menor 5%", 
-                              pct_sd < 0.1 ~ "menor 10%", 
-                              TRUE ~ "mayor 10%"),
-         var_desc = factor(var_desc, level = c("menor 1%", "menor 2%", "menor 5%", 
-                                               "menor 10%", "mayor 10%"))) %>% 
+  mutate(var_desc = case_when(coef_var < 0.1 ~ "menor 10%",
+                              coef_var < 0.2 ~ "menor 20%",
+                              coef_var < 0.5 ~ "menor 50%", 
+                              coef_var < 1 ~ "menor 100%", 
+                              TRUE ~ "mayor 1000%"),
+         var_desc = factor(var_desc, level = c("menor 1%", "menor 20%", "menor 50%", 
+                                               "menor 100%", "mayor 100%"))) %>% 
   na.omit() %>% 
   count(family, var_desc) %>% 
   spread(var_desc, n, fill = 0) %>% 
@@ -116,7 +117,7 @@ df_strs <- train %>%
   mutate(sales_total = sum(sales)) %>% 
   group_by(store_nbr) %>% 
   # Generando otros features
-  mutate(pct = sales/sales_total, 
+  mutate(pct = sales/sales_total * 100, 
          pct_rm_7d = slide_dbl(pct, mean, .before = 6, .after = 0, .complete = TRUE), 
          week_num = isoweek(date),
          biweek_num = ceiling(week_num / 2),
@@ -127,7 +128,8 @@ df_strs <- train %>%
   mutate(datebiweek = min(date)) %>% # fecha inicial de cada semana
   ungroup()
 
-# Revisemos la volatilidad a nivel de bisemana
+# Variación global --------------------------------------------------------
+# Revisemos la volatilidad a nivel de bisemana por store
 df_strs_biweek <- df_strs %>% 
   group_by(datebiweek, store_nbr, family) %>% 
   summarise(sales_week = sum(sales),
@@ -135,28 +137,51 @@ df_strs_biweek <- df_strs %>%
             pct_max = max(pct),
             pct_min = min(pct),
             pct_sd = sd(pct)) %>% 
-  ungroup()
+  ungroup() %>% 
+  mutate(coef_var = pct_sd/pct_mean)
 
-# Observamos que en general la gran mayoría de las tiendas son 
-# bastante estables en ventana de 2 semanas la mayoría del tiempo. 
-# Sin embargo, hay que tener ojo con las siguientes tiendas:
-# store_nbr = 23
-# store_nbr = 32
-# store_nbr = 26
-# store_nbr = 24
-# store_nbr = 30
+# Variación global
+# Un 30% de las bisemanas de todo el train, el porcentaje de 
+# variación de las familias es menor a 20%. 
+# Por el contrario un 8% tiene variación sobre entre 80-100% intra bisemana. 
 df_strs_biweek %>% 
-  mutate(var_desc = case_when(pct_sd < 0.01 ~ "menor 1%",
-                              pct_sd < 0.02 ~ "menor 2%",
-                              pct_sd < 0.05 ~ "menor 5%", 
-                              pct_sd < 0.1 ~ "menor 10%", 
-                              TRUE ~ "mayor 10%"),
-         var_desc = factor(var_desc, level = c("menor 1%", "menor 2%", "menor 5%", 
-                                               "menor 10%", "mayor 10%"))) %>% 
+  mutate(var_desc = case_when(coef_var < 0.1 ~ "menor 10%",
+                              coef_var < 0.2 ~ "menor 20%",
+                              coef_var < 0.5 ~ "menor 50%", 
+                              coef_var < 0.8 ~ "menor 80%",
+                              coef_var < 1 ~ "menor 100%", 
+                              TRUE ~ "mayor 1000%"),
+         var_desc = factor(var_desc, level = c("menor 1%", "menor 20%", "menor 50%", "menor 80%",
+                                               "menor 100%", "mayor 100%"))) %>% 
+  na.omit() %>% 
+  count(store_nbr,var_desc) %>% 
+  group_by(var_desc) %>% 
+  summarise(n_prom = round(mean(n))) %>% 
+  mutate(pct = round(n_prom/sum(n_prom)*100,1)) %>% 
+  knitr::kable() # to readme
+
+# Conclusión, la variabilidad intra dos semanas no es menor
+# sin embargo, todo es menor a 100% por lo que podría servir esta hipótesis
+# habría que probar distintas ventanas
+
+# Variación Nivel store ---------------------------------------------------
+# Hay que tener ojo con las siguientes tiendas:
+# store_nbr = 10
+# store_nbr = 26
+# store_nbr = 13
+df_strs_biweek %>% 
+  mutate(var_desc = case_when(coef_var < 0.1 ~ "menor 10%",
+                              coef_var < 0.2 ~ "menor 20%",
+                              coef_var < 0.5 ~ "menor 50%", 
+                              coef_var < 0.8 ~ "menor 80%",
+                              coef_var < 1 ~ "menor 100%", 
+                              TRUE ~ "mayor 1000%"),
+         var_desc = factor(var_desc, level = c("menor 1%", "menor 20%", "menor 50%", "menor 80%",
+                                               "menor 100%", "mayor 100%"))) %>% 
   na.omit() %>% 
   count(store_nbr, var_desc) %>% 
   spread(var_desc, n, fill = 0) %>% 
-  arrange(desc(`mayor 10%`)) %>% 
+  arrange(desc(`menor 100%`)) %>% 
   fun_print()
 
 # Revisemos el producto problemático
@@ -176,4 +201,3 @@ df_strs_biweek %>%
   count(store_nbr, family, var_desc) %>% 
   spread(var_desc, n, fill = 0) %>% 
   arrange(desc(`mayor 10%`))
-
