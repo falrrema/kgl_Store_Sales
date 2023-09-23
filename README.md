@@ -190,11 +190,11 @@ Finishing the training and measuring performance in Block time CV for store-leve
 
 ![Performace roll pct h2](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Performance_Roll_pct_h2.png)
 
-The lowest scores where found at 50 days with linear models, and 360 days with boosting models with a mean rolling 14 days family percentage (other had worst performance). I tried an Ensemble (mean prediction of all models), but although is showed on average better performance than `glmnet` it was less robust when looking a consistency and recent slice scores. I went to submit `glmnet` 50 days 2 weeks mean rolling family percentage and `lightgbm` 360 days 2 weeks mean rolling family percentage (did save the model thats why I could show the results here):
+The lowest scores where found at 50 days with linear models, and 360 days with boosting models with a mean rolling 14 days family percentage (other had worst performance). I tried an Ensemble (mean prediction of all models), but although is showed on average better performance than `glmnet` it was less robust when looking a consistency and recent slice scores. I went to submit `glmnet` 50 days 2 weeks mean rolling family percentage for curiosity although its expected to perform a little bit worst and `lightgbm` 360 days 2 weeks mean rolling family percentage (I did not save the model, that's why I could not show the results before):
 
 
 ![Performace roll pct](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Submission_H2_lightgbm.png)
 
 ![Performace roll pct](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Submission_H2_glmnet.png)
 
-Both of them were a slight improvement, being `glmnet` the best one marginally! This position around rank 66th. 
+As you can see `glmnet` performed worst than H1 submission, but `lightgbm` showed a slight increase in performance. This position around rank 66th! I am happy that my CV system correlated well with the test performance in kaggle. 
