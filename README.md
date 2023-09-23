@@ -73,7 +73,7 @@ I suggested the team two things:
 
 Vacations!
 
-### Week 6-7 
+### Week 7 
 
 Still on vacations but manage to find time to work out a hypotesis. This week I have work mainly in R using the `modeltime` library. You can fin more in this link:
 
@@ -98,3 +98,62 @@ I first did a simple EDA of this hypothesis you can find that analysis in `S8_H1
 |menor 100% |    184|  8.3|
 
 Only 20% biweeks-family has a variation of its percentage below 20% (there were no under 10%), only 8% has between 80-100%. This strategy may work, but I will have to experiment with different look-back frames (not only two week). 
+
+#### Modeling
+
+I made a block time series crossvalidation with 150 days of training and 15 days of test. A total of 10 slices were made with these characteristics:
+
+|.id     |.key     |min_date   |max_date   |    n| sum_sales| sum_prom|diff     |
+|:-------|:--------|:----------|:----------|----:|---------:|--------:|:--------|
+|Slice01 |training |2017-03-04 |2017-07-31 | 8100| 129478086|  1885574|149 days |
+|Slice01 |testing  |2017-08-01 |2017-08-15 |  810|  12433323|   160278|14 days  |
+|Slice02 |training |2016-09-18 |2017-02-15 | 8100| 126497045|  2003464|150 days |
+|Slice02 |testing  |2017-02-16 |2017-03-02 |  810|  12375999|   162018|14 days  |
+|Slice03 |training |2016-04-05 |2016-09-01 | 8100| 115499431|  1390679|149 days |
+|Slice03 |testing  |2016-09-02 |2016-09-16 |  810|  11663417|   129889|14 days  |
+|Slice04 |training |2015-10-21 |2016-03-19 | 8100| 118298760|   723888|150 days |
+|Slice04 |testing  |2016-03-20 |2016-04-03 |  810|  11735073|    81278|14 days  |
+|Slice05 |training |2015-05-08 |2015-10-04 | 8100| 107657202|   519688|149 days |
+|Slice05 |testing  |2015-10-05 |2015-10-19 |  810|  11539689|    56977|14 days  |
+|Slice06 |training |2014-11-22 |2015-04-21 | 8100|  85749072|   283646|150 days |
+|Slice06 |testing  |2015-04-22 |2015-05-06 |  810|   7795975|    30643|14 days  |
+|Slice07 |training |2014-06-09 |2014-11-05 | 8100|  86967388|   288440|149 days |
+|Slice07 |testing  |2014-11-06 |2014-11-20 |  810|   9673110|    37007|14 days  |
+|Slice08 |training |2013-12-24 |2014-05-23 | 8100|  77896800|     9423|150 days |
+|Slice08 |testing  |2014-05-24 |2014-06-07 |  810|   6859857|     7935|14 days  |
+|Slice09 |training |2013-07-11 |2013-12-07 | 8100|  58456165|        0|149 days |
+|Slice09 |testing  |2013-12-08 |2013-12-22 |  810|   7841931|        0|14 days  |
+|Slice10 |training |2013-01-26 |2013-06-24 | 8100|  55073882|        0|149 days |
+|Slice10 |testing  |2013-06-25 |2013-07-09 |  810|   5789107|        0|14 days  |
+
+I trained 5 models (`Linear regression`, `Glmnet`, `Xgboost`, `Prophet Boost`, `Lightgbm`) all available through `tidymodels` and `modeltime` libraries. 
+
+*Feature engineering*: I added features like `onpromotion`, delta prices of oil (daily, weekly), and added features store-level `cluster` and `type`. Last, but not least the holidays. 
+
+|date       | store_nbr|     sales| onpromotion| delta_oil_1d| delta_oil_7d|type |cluster | holiday|
+|:----------|---------:|---------:|-----------:|------------:|------------:|:----|:-------|-------:|
+|2013-01-11 |         1|  5494.016|           0|        -0.21|         0.48|D    |13      |       0|
+|2013-01-11 |         2|  6459.785|           0|        -0.21|         0.48|D    |13      |       0|
+|2013-01-11 |         3| 14997.531|           0|        -0.21|         0.48|D    |8       |       0|
+|2013-01-11 |         4|  6109.589|           0|        -0.21|         0.48|D    |9       |       0|
+|2013-01-11 |         5|  6379.973|           0|        -0.21|         0.48|D    |4       |       0|
+
+I fabricated a recipe that fabricated more features and log-transformed the sales:
+
+```
+recipe_spec <- recipe(sales ~ ., template) %>%
+  step_timeseries_signature(date) %>%
+  step_select(sales, date, store_nbr, onpromotion, delta_oil_1d, delta_oil_7d,
+              type, cluster, holiday, date_half, date_quarter, date_month,
+              date_day, date_wday, date_week, type, cluster) %>%
+  step_mutate(store_nbr = factor(store_nbr)) %>%
+  step_dummy(all_nominal()) %>% # Everything to dummy
+  step_log(sales, offset = 1, base = 10)
+
+```
+
+Probably it would have been better to dummify also the date features like date_day, or day_week. I will test it in the future. 
+
+Overall the performance was very similar between boosting models as expected:
+
+![Resample Performance](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Results_Resample_H1.png)
