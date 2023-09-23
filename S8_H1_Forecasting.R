@@ -113,7 +113,7 @@ split_res <- splits %>%
             sum_sales = sum(sales),
             sum_prom = sum(onpromotion)) %>% 
   mutate(diff = max_date - min_date) %>% 
-  fun_print()
+  knitr::kable()
 
 # Esta perfecto
 splits %>%
@@ -214,7 +214,7 @@ resample_results %>%
 
 resample_results %>%
   modeltime_resample_accuracy(summary_fns = list(mean = mean, median = median, sd = sd), 
-                              metric_set = rmse) 
+                              metric_set = rmsle) 
 
 # Lets see training error versus test error
 train_calibrate <- resample_results %>% 
@@ -257,34 +257,25 @@ mean_scores <- map2(train_scores, test_scores, function(x, y) {
   }) # the results vary from the resampling.....
 
 # Family-wise forecasting -------------------------------------------------
-models_fitted <- resample_results %>% 
-  filter(!.model_desc %in% c("LM")) %>% # saco LM 
-  pull(.model)
-
-# Last split training
-last_fit <- training(splits$splits[[1]]) %>% 
-  arrange(date, store_nbr)
-refit_train <- model_tbl %>%
-  modeltime_refit(model, data = last_fit) # Fit the last slice 
-
+# Tenemos el modeltime table entrenado con el último slice (ultima fecha)
+# cuando armamos el workflow
 # Forecasting on split of test
 # hare dos ensamblajes
 # ENSEMBLE1 = promedio todos los modelos
 # ENSEMBLE2 = promedio xgboost, light gbm y prophet boost
-forecast_train <- refit_train %>% 
-  filter(.model_desc != "LM") %>% 
+forecast_train <- model_tbl %>% 
   modeltime_forecast(new_data = testing(splits$splits[[1]]), keep_data = TRUE) %>% 
   select(date, store_nbr, .model_desc, sales_total = sales, preds = .value) %>% 
   spread(.model_desc, preds) %>% 
   rowwise() %>%
-  mutate(ENSEMBLE1 = mean(c_across(GLMNET:XGBOOST)), # 
-         ENSEMBLE2 = mean(c_across(LIGHTGBM:XGBOOST))) %>% 
-  gather(.model_desc, preds, GLMNET:ENSEMBLE2) %>% 
+  mutate(ENSEMBLE = mean(c_across(GLMNET:XGBOOST))) %>% 
+  gather(.model_desc, preds, GLMNET:ENSEMBLE) %>% 
   mutate(preds = exponenciador(preds))
   
 # Me quedo con la última fecha de entrenamiento
+(fecha_final <- max(splits$splits[[1]]$data[splits$splits[[1]]$in_id,]$date))
 rolling_pct_train <- df_strs %>% 
-  filter(date == max(last_fit$date)) %>% # 2017-07-31 ultimo día del entrenamiento
+  filter(date == max(fecha_final)) %>% # 2017-07-31 ultimo día del entrenamiento
   gather(roll_pct, value, pct:pct_rm_30d) %>% 
   select(store_nbr, family, roll_pct, value)
 
@@ -303,7 +294,7 @@ forecast_rolling_pct %>%
   group_by(model, roll_pct) %>% 
   summarise(rmsle = rmsle_vec(truth = sales, estimate = preds)) %>% 
   spread(model, rmsle) %>% 
-  arrange(LIGHTGBM)
+  knitr::kable()
 
 # Mirando por fecha
 # Los errores son estables por fecha
