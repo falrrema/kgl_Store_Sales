@@ -415,4 +415,8 @@ write_rds(list(df_splits = df_splits,
                df_resample = df_resample),
           "Data/H2.RDS")
 
-
+# df_list <- read_rds("Data/H2.RDS")
+# splits <- df_list$splits
+# recipe_spec = df_list$recipe_spec
+# model_tbl = df_list$model_tbl
+# resample_results = df_list$resample_results

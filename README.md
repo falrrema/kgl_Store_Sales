@@ -166,3 +166,35 @@ This was my submission for these hypothesis, and it was a great submission! Goin
 
 ![Performace roll pct](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Submission_H1.png)
 
+#### Week 8
+
+I went further in to explore H1 branch with a second hypothesis: 
+
+**Hypothesis 2:**
+
+*I can further improve H1 results by experimenting different training time windows, there is possibly a sweet spot that can be exploited by the linear or boosting models*
+
+I tested a training window of 50, 100, 150, 200, 250, 300, 360 days. I recycle the same code as H1. and made strong use of the `map` functions from the `purrr` package. This script takes long to execute, and probably i could have speeded up by parallelizing, however, left it to finish through the night. 
+
+| ventana_train|        LM|    GLMNET|   XGBOOST| PROPHET W/ XGBOOST ERRORS|  LIGHTGBM|
+|-------------:|---------:|---------:|---------:|-------------------------:|---------:|
+|            50| 0.1128163| 0.1010343| 0.0606589|                 0.0604650| 0.0583080|
+|           100| 0.1616578| 0.1625962| 0.0723388|                 0.0777135| 0.0779036|
+|           150| 0.1748317| 0.1437854| 0.0484797|                 0.0470409| 0.0474784|
+|           200| 0.2059393| 0.2053632| 0.1072516|                 0.1046803| 0.1078452|
+|           250| 0.1400164| 0.1402600| 0.0841187|                 0.0804277| 0.0817293|
+|           300| 0.2452633| 0.2459583| 0.1241810|                 0.1305908| 0.1229070|
+|           360| 0.1036736| 0.1032133| 0.0580369|                 0.0873524| 0.0562339|
+
+Finishing the training and measuring performance in Block time CV for store-level sales and it seemed that the sweet spot was actually around 150 days. The reason I did 150 days in H1, was because my team did an analysis but only using linear models and showed that a sweet spot was between 120-150 days. I went ahead and cascade down the sales using the rolling family percentage:
+
+![Performace roll pct h2](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Performance_Roll_pct_h2.png)
+
+The lowest scores where found at 50 days with linear models, and 360 days with boosting models with a mean rolling 14 days family percentage (other had worst performance). I tried an Ensemble (mean prediction of all models), but although is showed on average better performance than `glmnet` it was less robust when looking a consistency and recent slice scores. I went to submit `glmnet` 50 days 2 weeks mean rolling family percentage and `lightgbm` 360 days 2 weeks mean rolling family percentage (did save the model thats why I could show the results here):
+
+
+![Performace roll pct](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Submission_H2_lightgbm.png)
+
+![Performace roll pct](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Submission_H2_glmnet.png)
+
+Both of them were a slight improvement, being `glmnet` the best one marginally! This position around rank 66th. 
