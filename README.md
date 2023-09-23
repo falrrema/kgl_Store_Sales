@@ -157,3 +157,12 @@ Probably it would have been better to dummify also the date features like date_d
 Overall the performance was very similar between boosting models as expected:
 
 ![Resample Performance](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Results_Resample_H1.png)
+
+When analyzing what rolling family percentage was best to predict the next 15 days it came that `Prophet Boost` showed the lowest score by an extremely small margin in comparison to the other boosted models for a 2 weeks rolling mean percentage (`pct_rm_14d`): 
+
+![Performace roll pct](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Performance Roll_PCT.png)
+
+This was my submission for these hypothesis, and it was a great submission! Going up the rank up to around position 70. 
+
+![Performace roll pct](https://github.com/falrrema/kgl_Store_Sales/blob/main/Extra/Submission_H1.png)
+
