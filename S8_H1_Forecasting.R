@@ -17,7 +17,7 @@ source("Helper.R")
 # Seteando ambiente -------------------------------------------------------
 # Específicos para el proyecto
 packages <- c("plotly", "slider", "tidymodels", "modeltime", "modeltime.resample", "timetk",
-              "tidyverse", "tidyquant", "bonsai", "vip")
+              "tidyverse", "tidyquant", "bonsai", "vip", "doParallel")
 requirements_libs(packages)
 
 # Data --------------------------------------------------------------------
@@ -139,9 +139,9 @@ recipe_spec %>% prep %>% bake(new_data = store_test) %>% glimpse
 
 # Modeling and fit --------------------------------------------------------
 # Model 1: lm
-wf_linear <- workflow() %>% 
-  add_model(linear_reg() %>% 
-              set_engine("lm")) %>%
+wf_bart <- workflow() %>% 
+  add_model(bart(mode = "regression", trees = 5000) %>% 
+      set_engine("dbarts")) %>%
   add_recipe(recipe_spec %>% step_rm(date)) %>% 
   fit(training(splits$splits[[1]]))
 
@@ -189,7 +189,7 @@ wf_ltboost <- workflow() %>%
 
 # Model Time Table and Refit ----------------------------------------------
 model_tbl <- modeltime_table(
-  wf_linear,
+  wf_bart,
   wf_glmnet,
   wf_xgboost,
   wf_prophet_xgboost,
@@ -197,11 +197,17 @@ model_tbl <- modeltime_table(
 )
 
 # Resampling Refit
+cluster <- makeCluster(detectCores())
+registerDoParallel(cluster)
 resample_results <- model_tbl %>%
   modeltime_fit_resamples(
     resamples = splits,
-    control   = control_resamples(verbose = TRUE)
+    control   = control_resamples(verbose = TRUE,
+                                  save_pred = TRUE,
+                                  parallel_over = "everything",
+                                  save_workflow = TRUE)
   )
+stopCluster(cluster)
 
 # Results - RMSLE ---------------------------------------------------------
 resample_results %>%
@@ -212,49 +218,45 @@ resample_results %>%
     .interactive = TRUE
   )
 
-resample_results %>%
-  modeltime_resample_accuracy(summary_fns = list(mean = mean, median = median, sd = sd), 
-                              metric_set = rmsle) 
-
 # Lets see training error versus test error
-train_calibrate <- resample_results %>% 
-  filter(!.model_desc %in% c("LM", "LIGHTGBM")) %>% # saco LM y lightgbm que tuvo problemas
-  pull(.model) %>% 
-  map(function(df) { # loopeando por modelo
-    eng <- extract_spec_parsnip(df)
-    bla("Calculando Train RMSLE para:", eng$engine)
-    map_df(splits$splits, function(sp) { # loopeando por splits
-      df %>% modeltime_calibrate(training(sp), quiet = TRUE)
-    })
-  })
-
-train_scores <- train_calibrate %>% 
-  map(function(df) modeltime_accuracy(df, metric_set = rmse))
-
-test_calibrate <- resample_results %>% 
-  filter(!.model_desc %in% c("LM", "LIGHTGBM")) %>% # saco LM que tuvo problemas
-  pull(.model) %>% 
-  map(function(df) { # loopeando por modelo
-    eng <- extract_spec_parsnip(df)
-    bla("Calculando Train RMSLE para:", eng$engine)
-    map_df(splits$splits, function(sp) { # loopeando por splits
-      df %>% modeltime_calibrate(testing(sp), quiet = TRUE)
-    })
-  })
-
-test_scores <- test_calibrate %>% 
-  map(function(df) modeltime_accuracy(df, metric_set = rmse))
-
-
-mean_scores <- map2(train_scores, test_scores, function(x, y) {
-  x %>% select(.model_id, .model_desc, rmse_train = rmse) %>% 
-    bind_cols(y %>% select(rmse_test = rmse))
-}) %>% 
-  map_df(function(df) {
-    df %>% group_by(.model_desc) %>% 
-      summarise(rmse_train = mean(rmse_train),
-                rmse_test = mean(rmse_test))
-  }) # the results vary from the resampling.....
+# train_calibrate <- resample_results %>% 
+#   filter(!.model_desc %in% c("LM", "LIGHTGBM")) %>% # saco LM y lightgbm que tuvo problemas
+#   pull(.model) %>% 
+#   map(function(df) { # loopeando por modelo
+#     eng <- extract_spec_parsnip(df)
+#     bla("Calculando Train RMSLE para:", eng$engine)
+#     map_df(splits$splits, function(sp) { # loopeando por splits
+#       df %>% modeltime_calibrate(training(sp), quiet = TRUE)
+#     })
+#   })
+# 
+# train_scores <- train_calibrate %>% 
+#   map(function(df) modeltime_accuracy(df, metric_set = rmse))
+# 
+# test_calibrate <- resample_results %>% 
+#   filter(!.model_desc %in% c("LM", "LIGHTGBM")) %>% # saco LM que tuvo problemas
+#   pull(.model) %>% 
+#   map(function(df) { # loopeando por modelo
+#     eng <- extract_spec_parsnip(df)
+#     bla("Calculando Train RMSLE para:", eng$engine)
+#     map_df(splits$splits, function(sp) { # loopeando por splits
+#       df %>% modeltime_calibrate(testing(sp), quiet = TRUE)
+#     })
+#   })
+# 
+# test_scores <- test_calibrate %>% 
+#   map(function(df) modeltime_accuracy(df, metric_set = rmse))
+# 
+# 
+# mean_scores <- map2(train_scores, test_scores, function(x, y) {
+#   x %>% select(.model_id, .model_desc, rmse_train = rmse) %>% 
+#     bind_cols(y %>% select(rmse_test = rmse))
+# }) %>% 
+#   map_df(function(df) {
+#     df %>% group_by(.model_desc) %>% 
+#       summarise(rmse_train = mean(rmse_train),
+#                 rmse_test = mean(rmse_test))
+#   }) # the results vary from the resampling.....
 
 # Family-wise forecasting -------------------------------------------------
 # Tenemos el modeltime table entrenado con el último slice (ultima fecha)
@@ -262,14 +264,13 @@ mean_scores <- map2(train_scores, test_scores, function(x, y) {
 # Forecasting on split of test
 # hare dos ensamblajes
 # ENSEMBLE1 = promedio todos los modelos
-# ENSEMBLE2 = promedio xgboost, light gbm y prophet boost
 forecast_train <- model_tbl %>% 
   modeltime_forecast(new_data = testing(splits$splits[[1]]), keep_data = TRUE) %>% 
   select(date, store_nbr, .model_desc, sales_total = sales, preds = .value) %>% 
   spread(.model_desc, preds) %>% 
   rowwise() %>%
-  mutate(ENSEMBLE = mean(c_across(GLMNET:XGBOOST))) %>% 
-  gather(.model_desc, preds, GLMNET:ENSEMBLE) %>% 
+  mutate(ENSEMBLE = mean(c_across(DBARTS:XGBOOST))) %>% 
+  gather(.model_desc, preds, DBARTS:ENSEMBLE) %>% 
   mutate(preds = exponenciador(preds))
   
 # Me quedo con la última fecha de entrenamiento
@@ -291,6 +292,7 @@ forecast_rolling_pct <- forecast_train %>%
 # El mejor modelo es Prophet + XgBoost
 # ensamblajes no ayudan
 forecast_rolling_pct %>% 
+  mutate(model = gsub("PROPHET W/ XGBOOST ERRORS", "PROPHET_BOOST", model)) %>% 
   group_by(model, roll_pct) %>% 
   summarise(rmsle = rmsle_vec(truth = sales, estimate = preds)) %>% 
   spread(model, rmsle) %>% 
@@ -312,7 +314,7 @@ forecast_rolling_pct %>%
   summarise(rmsle = rmsle_vec(truth = sales, estimate = preds)) %>% 
   spread(model, rmsle) %>% 
   filter(roll_pct == "pct_rm_14d") %>% 
-  arrange(ENSEMBLE1) %>% fun_print()
+  arrange(ENSEMBLE) %>% fun_print()
 
 # Conclusion:
 # El mejor modelo individual fue PROPHET W/ XGBOOST
@@ -320,7 +322,6 @@ forecast_rolling_pct %>%
 
 # Forecasting test set - Submission ---------------------------------------
 models_fitted <- resample_results %>% 
-  filter(!.model_desc %in% c("LM")) %>% # saco LM 
   pull(.model)
 
 # Last split training + testing
@@ -331,7 +332,6 @@ refit_tbl <- model_tbl %>%
 
 # Forecasting on real test
 forecast_test <- refit_train %>% 
-  filter(.model_desc != "LM") %>% 
   modeltime_forecast(new_data = store_test, keep_data = TRUE) %>% 
   select(date, store_nbr, .model_desc, preds = .value) %>% 
   mutate(preds = exponenciador(preds))
@@ -351,7 +351,7 @@ forecast_rolling_pct_test <- forecast_test %>%
 # Preparando el submission
 forecast_rolling_pct_test %>% 
   filter(roll_pct == "pct_rm_14d") %>% # escogiendo el mejor rolling percentage
-  filter(model == "PROPHET W/ XGBOOST ERRORS") %>% # escogiendo el mejor modelo
+  filter(model == "PROPHET_BOOST") %>% # escogiendo el mejor modelo
   left_join(test, by = c("date", "store_nbr", "family")) %>% 
   select(id, sales = preds) %>% 
   write_csv("Data/submission_H1_prophet_boost_pct_14d.csv")
@@ -369,3 +369,12 @@ write_rds(list(splits = splits,
 # recipe_spec = df_list$recipe_spec
 # model_tbl = df_list$model_tbl
 # resample_results = df_list$resample_results
+
+# Data set comparativo 
+forecast_rolling_pct %>% 
+  mutate(model = gsub("PROPHET W/ XGBOOST ERRORS", "PROPHET_BOOST", model),
+         model = paste0("h1_", model)) %>% 
+  filter(roll_pct == "pct_rm_14d") %>% # escogiendo el mejor rolling percentage
+  select(id, date, store_nbr, family, sales, model, preds) %>% 
+  spread(model, preds) %>% 
+  write_csv("Data/H1_test_models.csv")
