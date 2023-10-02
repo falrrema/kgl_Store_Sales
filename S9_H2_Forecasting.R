@@ -236,7 +236,7 @@ df_resample <- workflow_list %>%
 # 360 días (minima mediana)
 # 150 días dado que subi ese resultado lo ocupare de comparacion
 df_resample %>% 
-  map(function(resample_results) {
+  map_df(function(resample_results) {
     resample_results %>%
       rename(ventana = ventana_train) %>% 
       modeltime_resample_accuracy(summary_fns = list(mean = mean, 
@@ -244,7 +244,10 @@ df_resample %>%
                                                      sd = sd), 
                                   metric_set = rmsle) %>% 
       mutate(ventana_train = unique(resample_results$ventana_train))
-  })
+  }) %>% 
+  select(.model_desc, rmsle_mean, ventana_train) %>% 
+  pivot_wider(names_from = .model_desc, values_from = rmsle_mean) %>% 
+  knitr::kable()
 
 # Por Slice
 df_resample %>% 
@@ -308,13 +311,15 @@ forecast_rolling_pct <- forecast_train %>%
 # ensamblajes no aportan
 # En 50 días los modelos lineales le va mejor
 forecast_rolling_pct %>% 
-  map(function(df){
+  map_df(function(df){
     df %>% 
       group_by(model, roll_pct, ventana_train) %>% 
       summarise(rmsle = rmsle_vec(truth = sales, estimate = preds)) %>% 
       spread(model, rmsle) %>% 
-      arrange(LIGHTGBM)
-  })
+      arrange(XGBOOST)
+  }) %>% 
+  group_by(ventana_train) %>% 
+  filter(XGBOOST == min(XGBOOST))
 
 
 # Mirando por fecha
@@ -415,8 +420,7 @@ write_rds(list(df_splits = df_splits,
                df_resample = df_resample),
           "Data/H2.RDS")
 
-# df_list <- read_rds("Data/H2.RDS")
-# splits <- df_list$splits
-# recipe_spec = df_list$recipe_spec
-# model_tbl = df_list$model_tbl
-# resample_results = df_list$resample_results
+df_list <- read_rds("Data/H2.RDS")
+df_splits <- df_list$df_splits
+workflow_list = df_list$workflow_list
+df_resample = df_list$df_resample

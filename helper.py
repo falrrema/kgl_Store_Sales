@@ -1,8 +1,6 @@
 # Funciones claves
 import importlib
 import subprocess
-import pandas as pd
-import numpy as np
 
 def load_install_package(packages):
     for package in packages:
@@ -63,7 +61,6 @@ class BlockingTimeSeriesSplit():
 
 # Función para hacer CV generando una lista de DF con splits de train y test
 def sliding_period(df, btss, period):
-    import pandas as pd
     # Step 1: Check Period Index
     if period == "day":
         if not isinstance(df.index, pd.PeriodIndex) or df.index.freqstr != 'D':
@@ -166,3 +163,17 @@ def RMSLE(y_true: list, y_pred: list) -> float:
     n = len(y_true)
     msle = np.sqrt(np.mean(np.square(np.log1p(y_pred) - np.log1p(y_true))))
     return msle
+  
+# Calculate the week of the month
+def week_of_month(dt):
+    """Get the week of the month for the specified date."""
+    
+    # Get the first day of the month
+    first_day = dt.replace(day=1)
+    
+    # Count the number of desired weekdays up to and including the date
+    dom = dt.day
+    adjusted_dom = dom + first_day.weekday()
+    
+    # Return the week number
+    return (adjusted_dom - 1) // 7 + 1
