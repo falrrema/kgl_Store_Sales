@@ -15,7 +15,7 @@ source("Helper.R")
 # Seteando ambiente -------------------------------------------------------
 # Específicos para el proyecto
 packages <- c("plotly", "slider", "tidymodels", "modeltime", "modeltime.resample", "timetk",
-              "tidyverse", "tidyquant", "bonsai", "vip")
+              "tidyverse", "tidyquant", "bonsai", "vip", "doParallel")
 requirements_libs(packages)
 
 # Data --------------------------------------------------------------------
@@ -153,15 +153,7 @@ recipe_spec %>% prep %>% bake(new_data = store_test) %>% glimpse
 workflow_list <- df_splits %>% 
   map(function(splits) {
     bla("Workflow para:", unique(splits$ventana_train))
-    # Model 1: lm
-    bla("    Entrenando LM")
-    wf_linear <- workflow() %>% 
-      add_model(linear_reg() %>% 
-                  set_engine("lm")) %>%
-      add_recipe(recipe_spec %>% step_rm(date)) %>% 
-      fit(training(splits$splits[[1]]))
-    
-    # Model 2: lasso
+    # Model 1: lasso
     bla("    Entrenando LASSO")
     wf_glmnet <- workflow() %>% 
       add_model(linear_reg(penalty = 0.001, mixture = 1) %>% 
@@ -169,7 +161,7 @@ workflow_list <- df_splits %>%
       add_recipe(recipe_spec %>% step_rm(date)) %>% 
       fit(training(splits$splits[[1]]))
     
-    # Model 3 Xgboost
+    # Model 2 Xgboost
     bla("    Entrenando XGBOOST")
     wf_xgboost <- workflow() %>% 
       add_model(boost_tree(mode = "regression",
@@ -181,7 +173,7 @@ workflow_list <- df_splits %>%
       add_recipe(recipe_spec %>% step_rm(date)) %>% 
       fit(training(splits$splits[[1]]))
     
-    # Model 4 Prophet Boost
+    # Model 3 Prophet Boost
     bla("    Entrenando PROPHET BOOST")
     wf_prophet_xgboost <-  workflow() %>% 
       add_model(prophet_boost(seasonality_yearly = "auto",
@@ -195,7 +187,7 @@ workflow_list <- df_splits %>%
       add_recipe(recipe_spec) %>% 
       fit(training(splits$splits[[1]]))
     
-    # Model 5 lightgbm
+    # Model 4 lightgbm
     bla("    Entrenando LIGHTGBM")
     wf_ltboost <- workflow() %>% 
       add_model(boost_tree(mode = "regression",
@@ -209,7 +201,6 @@ workflow_list <- df_splits %>%
     
     # Fabricamos un modeltime table
     model_tbl <- modeltime_table(
-      wf_linear,
       wf_glmnet,
       wf_xgboost,
       wf_prophet_xgboost,
@@ -220,14 +211,17 @@ workflow_list <- df_splits %>%
 # Model Time Table and Refit ----------------------------------------------
 # Vamos a ver el desempeño usando crossvalidation
 # Resampling Refit
+cluster <- makeCluster(detectCores())
+registerDoParallel(cluster)
 df_resample <- workflow_list %>% 
   map2(df_splits, function(model_tbl, splits) {
     model_tbl %>%
       modeltime_fit_resamples(
         resamples = splits,
-        control   = control_resamples(verbose = TRUE)) %>% 
+        control = control_resamples(verbose = TRUE)) %>% 
       mutate(ventana_train = unique(splits$ventana_train))
   })
+stopCluster(cluster)
 
 # Results - RMSLE ---------------------------------------------------------
 # Miramos los resultados por ventana de entrenamiento
@@ -242,11 +236,11 @@ df_resample %>%
       modeltime_resample_accuracy(summary_fns = list(mean = mean, 
                                                      median = median, 
                                                      sd = sd), 
-                                  metric_set = rmsle) %>% 
+                                  metric_set = rmse) %>% 
       mutate(ventana_train = unique(resample_results$ventana_train))
   }) %>% 
-  select(.model_desc, rmsle_mean, ventana_train) %>% 
-  pivot_wider(names_from = .model_desc, values_from = rmsle_mean) %>% 
+  select(.model_desc, rmse_mean, ventana_train) %>% 
+  pivot_wider(names_from = .model_desc, values_from = rmse_mean) %>% 
   knitr::kable()
 
 # Por Slice
@@ -424,3 +418,15 @@ df_list <- read_rds("Data/H2.RDS")
 df_splits <- df_list$df_splits
 workflow_list = df_list$workflow_list
 df_resample = df_list$df_resample
+recipe_spec = df_list$recipe_spec
+
+# Data set comparativo 
+forecast_rolling_pct %>% 
+  bind_rows() %>% 
+  mutate(model = gsub("PROPHET W/ XGBOOST ERRORS", "PROPHET_BOOST", model),
+         model = paste0("h2_", model)) %>% 
+  filter(roll_pct == "pct_rm_14d") %>% # escogiendo el mejor rolling percentage
+  select(id, date, store_nbr, family, sales, ventana_train, model, preds) %>% 
+  spread(model, preds) %>% 
+  write_csv("Data/H2_test_models.csv")
+

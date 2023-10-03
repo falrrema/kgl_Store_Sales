@@ -138,21 +138,14 @@ recipe_spec %>% prep %>% bake(NULL) %>% glimpse
 recipe_spec %>% prep %>% bake(new_data = store_test) %>% glimpse
 
 # Modeling and fit --------------------------------------------------------
-# Model 1: lm
-wf_bart <- workflow() %>% 
-  add_model(bart(mode = "regression", trees = 5000) %>% 
-      set_engine("dbarts")) %>%
-  add_recipe(recipe_spec %>% step_rm(date)) %>% 
-  fit(training(splits$splits[[1]]))
-
-# Model 2: lasso
+# Model 1: lasso
 wf_glmnet <- workflow() %>% 
-  add_model(linear_reg(penalty = 0.01, mixture = 1) %>% 
+  add_model(linear_reg(penalty = 0.001, mixture = 1) %>% 
               set_engine("glmnet")) %>%
   add_recipe(recipe_spec %>% step_rm(date)) %>% 
   fit(training(splits$splits[[1]]))
 
-# Model 3 Xgboost
+# Model 2 Xgboost
 wf_xgboost <- workflow() %>% 
   add_model(boost_tree(mode = "regression",
                        trees = 5000, 
@@ -163,7 +156,7 @@ wf_xgboost <- workflow() %>%
   add_recipe(recipe_spec %>% step_rm(date)) %>% 
   fit(training(splits$splits[[1]]))
 
-# Model 4 Prophet Boost
+# Model 3 Prophet Boost
 wf_prophet_xgboost <-  workflow() %>% 
   add_model(prophet_boost(seasonality_yearly = "auto",
                           seasonality_weekly = "auto",
@@ -176,7 +169,7 @@ wf_prophet_xgboost <-  workflow() %>%
   add_recipe(recipe_spec) %>% 
   fit(training(splits$splits[[1]]))
 
-# Model 5 lightgbm
+# Model 4 lightgbm
 wf_ltboost <- workflow() %>% 
   add_model(boost_tree(mode = "regression",
                        trees = 5000, 
@@ -189,7 +182,6 @@ wf_ltboost <- workflow() %>%
 
 # Model Time Table and Refit ----------------------------------------------
 model_tbl <- modeltime_table(
-  wf_bart,
   wf_glmnet,
   wf_xgboost,
   wf_prophet_xgboost,
@@ -269,8 +261,8 @@ forecast_train <- model_tbl %>%
   select(date, store_nbr, .model_desc, sales_total = sales, preds = .value) %>% 
   spread(.model_desc, preds) %>% 
   rowwise() %>%
-  mutate(ENSEMBLE = mean(c_across(DBARTS:XGBOOST))) %>% 
-  gather(.model_desc, preds, DBARTS:ENSEMBLE) %>% 
+  mutate(ENSEMBLE = mean(c_across(GLMNET:XGBOOST))) %>% 
+  gather(.model_desc, preds, GLMNET:ENSEMBLE) %>% 
   mutate(preds = exponenciador(preds))
   
 # Me quedo con la última fecha de entrenamiento
