@@ -89,7 +89,7 @@ wf_ets <- workflow() %>%
 wf_glmnet <- workflow() %>% 
   add_model(linear_reg(penalty = 0.001, mixture = 1) %>% 
               set_engine("glmnet")) %>%
-  add_recipe(recipe_spec %>% step_rm(date))
+  add_recipe(recipe_spec %>% step_rm(date) %>% step_dummy(all_nominal()))
 
 # Model 5: Prophet Boost
 wf_prophet_xgboost <-  workflow() %>% 
@@ -121,8 +121,8 @@ wf_mars <- workflow() %>%
 
 
 # Modeltime fit -----------------------------------------------------------
-cluster <- makeCluster(detectCores())
-registerDoParallel(cluster)
+# cluster <- makeCluster(detectCores())
+# registerDoParallel(cluster)
 nested_modeltime_tbl <- modeltime_nested_fit(
   nested_data = nested_train,
   wf_arima,
@@ -133,6 +133,6 @@ nested_modeltime_tbl <- modeltime_nested_fit(
   wf_prophet_xgboost,
   wf_ltboost,
   metric_set = rmse,
-  control = control_nested_fit(verbose = TRUE, allow_par = TRUE)
+  control = control_nested_fit(verbose = TRUE)
 )
-stopCluster(cluster)
+# stopCluster(cluster)
