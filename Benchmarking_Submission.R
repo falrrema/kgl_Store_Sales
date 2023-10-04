@@ -28,8 +28,13 @@ h3 <- read_csv("Data/H3_test_models.csv") %>%
   gather(model, preds, h3_ENSEMBLE:h3_LIGHTGBM) %>% 
   mutate(ventana_train = 360) %>% 
   select(id, ventana_train, model, preds) 
+h4 <- read_csv("Data/H4_test_models.csv") %>% 
+  mutate(ventana_train = 360, 
+         model = "h4_MULTIPLE",
+         preds = exponenciador(preds)) %>% 
+  select(id, ventana_train, model, preds) 
 
-subs <- bind_rows(h1, h2, h3) %>% 
+subs <- bind_rows(h1, h2, h3, h4) %>% 
   left_join(train, by = "id") %>% 
   select(id, date, store_nbr, family, ventana_train, model, sales, preds)
 
@@ -42,4 +47,30 @@ subs %>%
             preds_sum = sum(preds),
             rmsle = rmsle_vec(truth = sales, estimate = preds)) %>% 
   arrange(rmsle) %>% fun_print()
+
+# mejor modelo por Store-Familia
+subs %>% 
+  group_by(store_nbr, family, ventana_train, model) %>% 
+  summarise(rmsle = rmsle_vec(truth = sales, estimate = preds)) %>% 
+  group_by(store_nbr, family) %>% 
+  filter(rmsle == min(rmsle)) %>% 
+  ungroup() %>% 
+  unite(store_family, store_nbr, family, remove = FALSE) %>% 
+  filter(!duplicated(store_family)) %>% 
+  arrange(desc(rmsle)) %>% 
+  fun_print()
+
+subs %>% 
+  group_by(store_nbr, family, ventana_train, model) %>% 
+  summarise(rmsle = rmsle_vec(truth = sales, estimate = preds)) %>% 
+  ungroup() %>% 
+  filter(store_nbr == 32, family == "LIQUOR,WINE,BEER") %>% 
+  arrange(rmsle) %>% 
+  fun_print()
+
+
+# MetaEnsamblaje ----------------------------------------------------------
+train <- subs %>% 
+  select(id, model, preds) %>% 
+  spread(model, preds)
 

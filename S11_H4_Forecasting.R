@@ -26,7 +26,8 @@ df_tbl <- df_tbl %>%
 glimpse(df_tbl)
 
 train <- df_tbl %>% filter(slice == "train") %>% select(-slice)
-test <- df_tbl %>% filter(slice == "test") %>% select(-slice)
+test <- df_tbl %>% filter(slice == "test") %>% select(-slice) %>% 
+  unite(store_family, store_nbr, family, remove = FALSE)
 
 # Nested table ------------------------------------------------------------
 nested_train <- train %>% 
@@ -70,13 +71,13 @@ wf_arima <- workflow() %>%
               set_engine(engine = "auto_arima")) %>%
   add_recipe(recipe_simple)
 
-# Model 2: arima-boost
+# Model 2: ARIMA Boost
 wf_arima_boost <- workflow() %>% 
-  add_model(arima_boost(trees = 5000, 
+  add_model(arima_boost(trees = 3000, 
                         tree_depth = 6, 
                         learn_rate = 0.01, 
-                        min_n = 5) %>% 
-              set_engine(engine = "auto_arima_xgboost")) %>%
+                        min_n = 5) %>%
+      set_engine(engine = "auto_arima_xgboost")) %>%
   add_recipe(recipe_spec)
 
 # Model 3: ETS
@@ -85,54 +86,164 @@ wf_ets <- workflow() %>%
               set_engine(engine = "ets")) %>%
   add_recipe(recipe_simple)
 
-# Model 4: lasso
-wf_glmnet <- workflow() %>% 
-  add_model(linear_reg(penalty = 0.001, mixture = 1) %>% 
-              set_engine("glmnet")) %>%
-  add_recipe(recipe_spec %>% step_rm(date) %>% step_dummy(all_nominal()))
+# # Model 4: lasso
+# wf_glmnet <- workflow() %>% 
+#   add_model(linear_reg(penalty = 0.001, mixture = 1) %>% 
+#               set_engine("glmnet")) %>%
+#   add_recipe(recipe_spec %>% step_rm(date) %>% step_dummy(all_nominal()))
 
 # Model 5: Prophet Boost
-wf_prophet_xgboost <-  workflow() %>% 
+wf_prophet_xgboost <-  workflow() %>%
   add_model(prophet_boost(seasonality_yearly = "auto",
                           seasonality_weekly = "auto",
-                          seasonality_daily = "auto", 
-                          trees = 5000,
-                          tree_depth = 6, 
-                          learn_rate = 0.01, 
-                          min_n = 5) %>% 
-              set_engine("prophet_xgboost")) %>% 
-  add_recipe(recipe_spec) 
+                          seasonality_daily = "auto",
+                          trees = 1000,
+                          tree_depth = 6,
+                          learn_rate = 0.01,
+                          min_n = 5) %>%
+              set_engine("prophet_xgboost")) %>%
+  add_recipe(recipe_spec)
 
 # Model 6: lightgbm
 wf_ltboost <- workflow() %>% 
   add_model(boost_tree(mode = "regression",
-                       trees = 5000, 
+                       trees = 3000, 
                        tree_depth = 6, 
                        learn_rate = 0.01, 
                        min_n = 5) %>% 
               set_engine("lightgbm"))  %>%
   add_recipe(recipe_spec %>% step_rm(date)) 
 
-# Model 7: MARS
-wf_mars <- workflow() %>% 
-  add_model(mars(mode = "regression") %>%
-              set_engine("earth") )  %>%
-  add_recipe(recipe_spec %>% step_rm(date)) 
-
-
 # Modeltime fit -----------------------------------------------------------
-# cluster <- makeCluster(detectCores())
-# registerDoParallel(cluster)
 nested_modeltime_tbl <- modeltime_nested_fit(
   nested_data = nested_train,
   wf_arima,
   wf_arima_boost,
   wf_ets,
-  wf_glmnet,
-  wf_mars,
   wf_prophet_xgboost,
   wf_ltboost,
   metric_set = rmse,
   control = control_nested_fit(verbose = TRUE)
 )
-# stopCluster(cluster)
+
+# Results - RMSLE ---------------------------------------------------------
+# Observamos que el mejor modelo es un Exponencial smoothing 
+nested_modeltime_tbl %>% 
+  extract_nested_test_accuracy() %>% 
+  mutate(.model_desc = ifelse(grepl("ETS", .model_desc), "ETS", .model_desc),
+         rmse = round(rmse, 3)) %>% 
+  group_by(.model_desc) %>% 
+  summarise(prom = mean(rmse),
+            med = median(rmse),
+            min = min(rmse),
+            max = max(rmse))
+
+# Mejor modelo por par Store-Familia
+# En general ETS es el modelo que más se ocupa en las series de tiempo (729)
+# seguido por ARIMA (684) y después lightgbm (369)
+nested_modeltime_tbl %>% 
+  extract_nested_test_accuracy() %>% 
+  mutate(.model_desc = ifelse(grepl("ETS", .model_desc), "ETS", .model_desc),
+         rmse = round(rmse, 3)) %>% 
+  group_by(store_family) %>% 
+  filter(rmse == min(rmse)) %>% 
+  ungroup() %>% 
+  filter(!duplicated(store_family)) %>% # elimino modelos con mismo performance
+  count(.model_desc)
+  
+# Selecting the Best model ------------------------------------------------
+best_nested_modeltime_tbl <- nested_modeltime_tbl %>%
+  modeltime_nested_select_best(
+    metric                = "rmse", 
+    minimize              = TRUE, 
+    filter_test_forecasts = TRUE
+  )
+
+# El criterio de selección es muy semejante el sacado anteriormente:
+# ARIMA: 684 series
+# ETS: 729 series
+# LightGBM: 369 series
+best_nested_modeltime_tbl$.modeltime_tables %>% 
+  bind_rows() %>% 
+  mutate(.model_desc = ifelse(grepl("ETS", .model_desc), "ETS", .model_desc)) %>% 
+  count(.model_desc)
+
+# El error mas alto lo tiene:
+# 47_SCHOOL AND OFFICE SUPPLIES: LightGBM 0.873
+# 18_SCHOOL AND OFFICE SUPPLIES: ETSANA 0.78
+best_nested_modeltime_tbl %>%
+  extract_nested_best_model_report() %>% 
+  mutate(rmse = round(rmse, 3)) %>% 
+  arrange(desc(rmse))
+
+# Extracción del forecast validacion
+best_nested_modeltime_tbl$.future_data
+best_nested_modeltime_tbl$.modeltime_tables[[1]]
+
+forecast_train <- map2_df(best_nested_modeltime_tbl$store_family, 
+     best_nested_modeltime_tbl$.modeltime_tables,
+     function(store_family, modeltime_table) {
+       modeltime_table$.calibration_data %>% 
+         bind_rows() %>% 
+         mutate(store_family = store_family, 
+                model = modeltime_table$.model_desc)
+     }) %>% 
+  separate(col = store_family, into = c("store_nbr", "family")) %>% 
+  mutate(store_nbr = as.double(store_nbr))
+
+valid_tbl <- train %>% 
+  select(id:sales) %>% 
+  inner_join(forecast_train, by = c("date", "store_nbr", "family"))
+
+# Aparentemente esto es una gran mejora
+valid_tbl %>% 
+  summarise(rmse = rmsle_vec(truth = exponenciador(sales), 
+                             estimate = exponenciador(.prediction)))
+
+# Refitting and Future Forecast -------------------------------------------
+nested_modeltime_refit_tbl <- best_nested_modeltime_tbl %>%
+  modeltime_nested_refit(control = control_nested_refit(verbose = TRUE))
+
+nested_modeltime_refit_tbl %>% 
+  modeltime_forecast(new_data = test, keep_data = TRUE)
+
+a <- test %>% 
+  filter(store_family == "1_AUTOMOTIVE")
+
+nested_modeltime_refit_tbl$.modeltime_tables[[1]] %>% 
+  modeltime_forecast(new_data = a)
+
+forecast_test <- map2_df(nested_modeltime_refit_tbl$store_family, 
+                      nested_modeltime_refit_tbl$.modeltime_tables,
+                      function(sf, modeltime_table) {
+                        df_test <- test %>%
+                          filter(store_family == sf[[1]])
+                        
+                        modeltime_table %>%
+                          bind_rows() %>%
+                          modeltime_forecast(new_data = df_test) %>%
+                          rename(date = .index) %>% 
+                          left_join(df_test %>% select(id, date),
+                                    by = "date")
+                      }, .progress = TRUE) %>% 
+  select(id, sales = .value) %>% 
+  arrange(id)
+
+forecast_test %>% 
+  mutate(sales = exponenciador(sales)) %>% 
+  write_csv("Data/submission_H4_by_store_family_360v.csv")
+
+# Guardando datasets claves -----------------------------------------------
+saveRDS(list(nested_train = nested_train,
+             recipe_simple = recipe_simple,
+             recipe_spec = recipe_spec,
+             model_tbl = nested_modeltime_tbl,
+             best_nested_modeltime_tbl = best_nested_modeltime_tbl),
+        "Data/H4.RDS")
+
+# df_list <- read_rds("Data/H4.RDS")
+
+# Data set comparativo 
+valid_tbl %>% 
+  select(id, date, store_nbr, family, sales, model, preds = .prediction) %>% 
+  write_csv("Data/H4_test_models.csv")
